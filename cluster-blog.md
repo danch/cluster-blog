@@ -39,7 +39,9 @@ Control Plane
 As I approached what passed for a design phase for this cluster, I kept a couple of high-level non-functional requirements in mind.
 1. HA - I wanted my cluster to be 'HA-ish.' While I wasn't going to have redundant power or network and have no uptime goal, I did want the cluster to be what I've come to think of as 'maintenance tolerant,' meaning that I should be able to bring down any single node and have 'most' of the facilities remain available.
 1. The cluster should employ features that are typically seen in production clusters. In particular, I wanted some redundancy in the control plane and the storage layer.
+
 Those goals really lead in the same direction - the production features I wanted support HA.
 
 ## High level design
+![Diagram of infrastructure components](infra.png "Infrastructure")
 
