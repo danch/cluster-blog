@@ -32,6 +32,9 @@ StatefulSet
 DaemonSet
 :  A DaemonSet is used for cases where we want a single instance of a pod on each member of the kubernetes cluster. DaemonSets can be given match criteria to determine a subset of nodes to run on as well. We'll see a number of daemonsets today.
 
+Kubelet
+:  The kubelet daemon runs on all nodes in the cluster, managing the pods that are deployed on those nodes.
+
 Control Plane
 :  'Control plane' refers to the set of nodes that run the services that collaborate to manage the kubernetes cluster. These services include the API Server, the Controller Manager, and the Scheduler. The control plane uses etcd to store cluster metadata. The etcd cluster can be managed internally to the kubernetes cluster or externally.
 
@@ -43,5 +46,12 @@ As I approached what passed for a design phase for this cluster, I kept a couple
 Those goals really lead in the same direction - the production features I wanted support HA.
 
 ## High level design
+In order to accomplish those goals with a 'reasonable' investment in hardware, I decided to create a 3 node cluster where each node was a master, a worker, and a storage node.
 ![Diagram of infrastructure components](infra.png "Infrastructure")
 
+In addition to the control plane components I mentioned above, this diagram also shows the storage and networking components. Starting from the bottom up, these are:
+1. SATA hard disks - a single 4 TB spindle in each machine. Nice, cheap spinning rust.
+2. The ceph distributed storage system, which provides configurably replicated storage.
+3. The rook kubernetes operator for ceph, which integrates ceph into kubernetes in such a way that the ceph storage cluster can be managed within kubernetes. Between the two, rook and ceph allow automated provisioning of distributed storage for use by stateful sets in the kubernetes cluster
+4. The flannel overlay network, allowing pod-to-pod traffic to be routed between nodes. Flannel provides a fairly simple vxlan overlay on the physical network.
+5. The traefik reverse-proxy/load balancer, used as an 'ingress controller' by kubernetes. This allows clients outside the kubernetes cluster to access web applications running inside the cluster. Traefik also has integration with Let's Encrypt, providing simple management for SSL certificates for exposed applications.
