@@ -55,3 +55,23 @@ In addition to the control plane components I mentioned above, this diagram also
 1. The rook kubernetes operator for ceph, which integrates ceph into kubernetes in such a way that the ceph storage cluster can be managed within kubernetes. Between the two, rook and ceph allow automated provisioning of distributed storage for use by stateful sets in the kubernetes cluster
 1. The flannel overlay network, allowing pod-to-pod traffic to be routed between nodes. Flannel provides a fairly simple vxlan overlay on the physical network.
 1. The traefik reverse-proxy/load balancer, used as an 'ingress controller' by kubernetes. This allows clients outside the kubernetes cluster to access web applications running inside the cluster. Traefik also has integration with Let's Encrypt, providing simple management for SSL certificates for exposed applications.
+1. HAProxy provides load balancing and failover outside the cluster
+1. Keepalived allows an IP address to be shared between all three nodes. With HAProxy, this provides functionality similar to an F5 or ELB, decoupling external clients from physical machine IP addresses. This is critical in the failover between the API servers in the control plane.
+
+Running on top of this core are a couple of additional peices of support infrastructure:
+1. The 'ELK' stack for log aggregation and search - in this case 'ELK' is Elasticsearch, Kibana, and Filebeat (so, EFK?).
+2. Prometheus and Grafana, for gathering of key performance and health indicators.
+
+## Ansible
+Ansible is a system for declaritive management of software installations. I've used it to automate the installation and initialization of the cluster so that it's repeatable. I've built the cluster at least 3 times now, thanks to this automation. It's far from perfect automation, as we'll see when we get into the procedures, but it does automate various fiddly parts of the build-out.
+
+All the ansible (and kubernetes manifests) are available on [github](https://github.com/danch/cluster-ansible) 
+
+## Hardware
+The hardware I've built my cluster on is a bit of a grab-bag of what was economical at the time - a refurbished desktop, two or three generations of AMD processors and motherboards. The common theme (at least in terms of my intent) was 16GB or more of memory and the most cores I could get for under $500 per node. The emphasis on memory and cores has to do with my expected workloads - a number of memory intensive server processes (Kafka, Cassandra, Elasticsearch) and application loads that are highly parallel and compute intensive. Components are largely consumer grade, with the exception of the hard disks (because of the way Ceph works, disks need to be fast and support a surprisingly heavy duty cycle). Networking is 1Gb on a dedicated switch.
+
+If I were to start over at this point, I'd settle on a single configuration, which would also include at least a small SSD for Ceph's write-ahead-log and indexes. An additional, larger SSD to provide a faster storage pool would also be interesting.
+
+# Procedures
+We're finally to the meat of the matter at hand - how to put this together and come out with a working, monitored kubernetes cluster? Most of the kubernetes set up has been derived from 
+
