@@ -73,5 +73,16 @@ The hardware I've built my cluster on is a bit of a grab-bag of what was economi
 If I were to start over at this point, I'd settle on a single configuration, which would also include at least a small SSD for Ceph's write-ahead-log and indexes. An additional, larger SSD to provide a faster storage pool would also be interesting.
 
 # Procedures
-We're finally to the meat of the matter at hand - how to put this together and come out with a working, monitored kubernetes cluster? Most of the kubernetes set up has been derived from 
+We're finally to the meat of the matter at hand - how to put this together and come out with a working, monitored kubernetes cluster? Most of the kubernetes set up has been derived from [Creating Highly Available Clusters with kubeadm](https://kubernetes.io/docs/setup/independent/high-availability/) This is neither the easy way (there are a good number of easier alternatives - see Docker Enterprise, kubespray, kops, GKE, EKS, AKS for example) nor [the hard way](https://github.com/kelseyhightower/kubernetes-the-hard-way). Kubeadm functionality for HA configurations is still experimental and is liable to change with every release (between 1.12 and 1.13, for example, it became quite a bit more automatic. I'm hopeful that this trend will continue).
 
+Please note that the ansible I've pulled together is not intended to be a robust, general purpose cluster set up. It's simply the automation I wanted in order to get some level of repeatability to this process.
+
+## Preparation
+Prior to getting into the actual cluster initialization, the nodes need to have their baseline operating systems installed. I've run this procedure on both Centos 7.x (with kubernetes 1.12) and Ubuntu 18.10 (with kubernetes 1.13). You also need key-authenticated ssh from your workstation to all of the nodes. You may wish to set up passwordless sudo for that user - I don't, but that requires an extra parameter when running ansible jobs. Make sure that you install python on the nodes, since that's a requirement for ansible.
+
+Note that there's no requirement that the nodes be physical machines - a set of VMs would work fine for a walk-through.
+
+Your workstation needs ansible and the kubectl ('kube control' often pronounced 'cube cuddle') kubernetes client installed.
+
+## Define ansible inventory
+For ansible to do it's thing, it needs to know about the machines it is controlling. This is done through an inventory file. This inventory file also allows us to categorize the hosts
