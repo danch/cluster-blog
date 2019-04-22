@@ -78,11 +78,56 @@ We're finally to the meat of the matter at hand - how to put this together and c
 Please note that the ansible I've pulled together is not intended to be a robust, general purpose cluster set up. It's simply the automation I wanted in order to get some level of repeatability to this process.
 
 ## Preparation
-Prior to getting into the actual cluster initialization, the nodes need to have their baseline operating systems installed. I've run this procedure on both Centos 7.x (with kubernetes 1.12) and Ubuntu 18.10 (with kubernetes 1.13). You also need key-authenticated ssh from your workstation to all of the nodes. You may wish to set up passwordless sudo for that user - I don't, but that requires an extra parameter when running ansible jobs. Make sure that you install python on the nodes, since that's a requirement for ansible.
+Prior to getting into the actual cluster initialization, the nodes need to have their baseline operating systems installed. I've run this procedure on both Centos 7.x (with kubernetes 1.12) and Ubuntu 18.10 (with kubernetes 1.13). You also need key-authenticated ssh (no password) from your workstation to all of the nodes. You may wish to set up passwordless sudo for the user you'll be using - I don't, but that requires an extra parameter when running ansible jobs. Make sure that you install python on the nodes, since that's a requirement for ansible.
 
 Note that there's no requirement that the nodes be physical machines - a set of VMs would work fine for a walk-through.
 
 Your workstation needs ansible and the kubectl ('kube control' often pronounced 'cube cuddle') kubernetes client installed.
 
 ## Define ansible inventory
-For ansible to do it's thing, it needs to know about the machines it is controlling. This is done through an inventory file. This inventory file also allows us to categorize the hosts
+For ansible to do it's thing, it needs to know about the machines it is controlling. This is done through an inventory file. This inventory file also allows us to categorize the hosts by their role in the cluster. In this case there are several roles expected by the ansible playbooks:
+1. kube: All hosts in the cluster. This is mostly used so that host variables can be assigned in a sinble place in the inventory file.
+1. kube-master: All masters in the cluster
+1. worker: Any additional nodes that are not masters
+1. proxy: Hosts running keepalived and haproxy
+1. storage: Host for Ceph storage
+1. vip: The virtual IP shared by the proxy hosts
+1. zero-master: The first master to be initialized
+1. other-master: The rest of the master group
+
+If this seems excessive for a four member cluster, it probably is. The set of roles grew in a 
+somewhat haphazard way as I added features to the ansible scripts. We'll go over the purpose of what is probably the most troubling set of them (three roles for the masters!?!) shortly.
+
+Depending on the Linux distribution you're using, you may need to set the python interpreter to use as a global variable in your inventory, like so:
+```
+all:
+  vars:
+    ansible_python_interpreter: python3
+```
+
+## Create keepalived and haproxy configurations
+The method used to configure keepalived and haproxy is to simply copy configuration files to each node verbatim. This could be templateized using ansible's built-in templating capability (Jinja2), but I simply haven't gotten around to it yet.
+
+## Base Installation
+The first step of the process is an ansible playbook that configures the target nodes and installes required and utility packages. This is run in the root of the repository with a command line like `ansible-playbook -i <inventory file> --ask-become-pass  kube-cluster.yml` (note that `--ask-become-password` is not needed if you've set up passwordless sudo).  Assuming that you have the nodes configured as discussed above, this will trundle through all the inventory and install the components and utilities required by the roles assigned to each node. 
+
+The 'configuration' this playbook does involved things like setting firewall rules (N.B. it currently disables firewalld on CentOS!), disabling swap on all nodes, installing htop, atop, and iotop for troubleshooting, and ensuring that the smarttools package (for interacting with onboard HDD diagnostics) are on the storage nodes. Required software is kubelet, kubeadm, kubectl, and docker on all nodes and keepalived and haproxy on the proxy nodes.
+
+## Initialize the first master
+At this point, everything should be installed and ready to begin initializing the kubernetes cluster. Running `ansible-playbook -i <inventory file> --ask-become-pass kube-init-zero.yaml` is all it takes. This should trundle along for a few minutes, after which you should be able to ssh to your zero master and see the kubernetes family of daemon processes running at the top of your (h)top.
+
+So, what this thing does is pretty simple: it runs `kubeadm init` with a configuration file that it copies to the host in question. That kubeadm configuration is pretty simple too: it just tells it what hostname to use in the certificate it generates and what CIDR to assign pod IPs from.
+
+What `kubeadm init` does, on the other hand, is rather more involved. It generates a couple of certificates, one of which is used internally as a certificate authority root. It defines a set of static pods (pods that are run by the kubelet when it starts, with the metadata coming from a local file rather than from etcd) on the host. It configures the kubelet daemon to run on the base OS. The static pods include the kube API server, the kube controller, etcd, and the kube scheduler. kubeadm configures security in these pods, sets core configuration, and generally gets them into a state where they'll talk to each other.
+
+Note that in this configuration etcd is running as a container, but its storage is volume mounted into that container. In other words, etcd's data storage is on the host it's running on. Really, it has to be, since it's basically at the beginning of the bootstrap foodchain. 
+
+## Initialize other nodes
+Now, we can take the next step and initialize kubenetes on the remaining nodes by running `ansible-playbook -i vm-inv.yml --ask-become-pass kube-init-other.yml`. Again, this will take a few minutes as docker images for the various daemons are pulled onto the nodes. Note that I have had this ansible script timeout waiting for the initialization to complete. This is an occasional issue, and retries generally succeed.
+
+This script copies a bunch of files from the zeroth master to the local directory 'temp'. This includes private key material! This is just one of the many ways in which this setup is innappropriate for production use, but do clean up that directory when you're done! At any rate, once the files are copied to the local machine, they're copied out to each remaining master node and put under /etc/kubernetes so that they can form the base for the new master's configuration. Then `kube-init join --experimental-control-plane` is executed on the node. That flag, introduced in kubeadm 1.13, automates some rather fiddly manual steps that had been required.
+
+Any worker nodes will also be pulled into the cluster, basically using the kube-init join command without the control plane flag.
+
+## Initialize Rook/Ceph
+
